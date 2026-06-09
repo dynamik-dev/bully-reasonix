@@ -67,3 +67,16 @@ def test_bully_skill_runs_the_soft_gate_loop():
     assert "--log-verdict --diff-id" in body
     assert "prior verdict" in body
     assert "AGENTIC LINT -- unsatisfied session rules gate this turn" in body
+
+
+def test_bully_scheduler_is_a_subagent_skill():
+    text = _read("skills/bully-scheduler/SKILL.md")
+    fm = _frontmatter(text)
+    assert fm.get("name") == "bully-scheduler"
+    assert fm.get("runas") == "subagent"
+    assert "bash" in fm.get("allowed-tools", "")
+    assert "model" not in fm  # routed via reasonix.toml [agent] subagent_models
+    body = text.split("---\n", 2)[2]
+    _assert_no_claude_isms(text, "skills/bully-scheduler")
+    assert "python3 -m bully.semantic.analyzer" in body
+    assert "bully-scheduler:" in body  # PR-title prefix contract
