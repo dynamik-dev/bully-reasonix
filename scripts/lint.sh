@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Single entry point for this repo's quality gate: ruff lint, format check,
-# pytest, the ShellCheck pass (when installed), and the Reasonix hook dogfood.
+# a ShellCheck pass (when installed), pytest, and the Reasonix hook dogfood.
 # After `pip install -e ".[dev]"`, run: bash scripts/lint.sh
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
