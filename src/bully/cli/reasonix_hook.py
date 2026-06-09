@@ -24,6 +24,7 @@ from bully.harness.reasonix import edit_event_from_payload
 from bully.runtime.hook_io import format_blocked_stderr
 from bully.runtime.runner import run_pipeline
 from bully.state.trust import untrusted_stderr
+from bully.state.verdict_cache import cached_verdict, diff_id
 
 
 def find_config_upward(start: Path) -> Path | None:
@@ -55,6 +56,40 @@ def _materialize(config_path: str, file_path: str, after: str) -> str:
     return tmp
 
 
+def _semantic_request_msg(result: dict, did: str) -> str:
+    rules = ", ".join(r["id"] for r in result.get("evaluate", []))
+    file_path = result.get("file", "")
+    payload = result.get("_evaluator_input", "")
+    return (
+        "AGENTIC LINT SEMANTIC EVALUATION REQUIRED (edit paused).\n\n"
+        f"Evaluate these rules against the diff: {rules}\n"
+        "Judge inline only if it is a single rule over a short diff; otherwise invoke the "
+        'evaluator subagent: run_skill(name="bully-evaluator", arguments=<the payload below>).\n'
+        "Then record each rule's verdict:\n"
+        f"  python3 -m bully --log-verdict --diff-id {did} --rule <id> --verdict <pass|violation> --file {file_path}\n"
+        "If every rule passes, re-apply this exact edit and it will be allowed. "
+        "If any rule is violated, fix it and apply the corrected edit.\n\n"
+        f"{payload}"
+    )
+
+
+def _semantic_gate(result: dict, config: Path) -> tuple[int, str]:
+    did = diff_id(result.get("file", ""), result.get("diff", ""))
+    evaluate = result.get("evaluate", [])
+    cfg = str(config)
+    cached = {r["id"]: cached_verdict(cfg, did, r["id"]) for r in evaluate}
+
+    recorded = [r for r in evaluate if cached.get(r["id"]) == "violation"]
+    if recorded:
+        body = "\n".join(f"- [{r['id']}] {r.get('description', '')}" for r in recorded)
+        return 2, "AGENTIC LINT -- blocked (semantic, prior verdict). Fix before proceeding:\n" + body + "\n"
+
+    if evaluate and all(cached.get(r["id"]) == "pass" for r in evaluate):
+        return 0, ""  # this exact edit was already evaluated clean -> allow
+
+    return 2, _semantic_request_msg(result, did)
+
+
 def _render(result: dict, config: Path) -> tuple[int, str]:
     status = result.get("status", "pass")
     if status == "untrusted":
@@ -65,11 +100,13 @@ def _render(result: dict, config: Path) -> tuple[int, str]:
         )
     if status == "blocked":
         return 2, format_blocked_stderr(result)
+    if status == "evaluate":
+        return _semantic_gate(result, config)
     warnings = result.get("warnings")
     if warnings:
         body = "\n".join(f"- [{w.get('rule', '?')}] {w.get('description', '')}" for w in warnings)
         return 1, "AGENTIC LINT -- warnings:\n" + body + "\n"
-    return 0, ""  # pass / skipped / evaluate (semantic deferred to M2)
+    return 0, ""
 
 
 def handle_payload(payload: dict) -> tuple[int, str]:
