@@ -49,7 +49,9 @@ def cached_verdict(config_path: str, did: str, rule: str) -> str | None:
                     and rec.get("diff_id") == did
                     and rec.get("rule") == rule
                 ):
-                    result = rec.get("verdict")  # keep scanning: latest wins
+                    v = rec.get("verdict")
+                    if v is not None:
+                        result = v  # keep scanning: latest non-null verdict wins
     except OSError:
         return None
     return result

@@ -64,7 +64,7 @@ Run script+ast rules in `PreToolUse`. Any `severity: error` violation → write 
 ### 5b. Semantic rules → soft-gate with a session verdict-cache
 There is no non-blocking model channel, so semantic eval becomes a one-time **soft-gate**:
 
-1. On `PreToolUse`, after deterministic rules pass, find in-scope semantic rules surviving the existing can't-match prefilters (whitespace/comment-only, pure-deletion-on-avoid). Compute a stable `diff_id = hash(file + normalized_diff)` (normalize: strip trailing whitespace, ignore pure reindent).
+1. On `PreToolUse`, after deterministic rules pass, find in-scope semantic rules surviving the existing can't-match prefilters (whitespace/comment-only, pure-deletion-on-avoid). Compute a stable `diff_id = hash(file + normalized_diff)` (normalize: strip trailing whitespace per line — enough that an identical re-issued edit hashes equal; a reindented variant is a *different* id and is re-evaluated, which errs safe).
 2. **Look up `(diff_id, rule)` in the session verdict-cache** (`state/verdict_cache.py`, reading `.bully/session.jsonl`):
    - **no verdict** → **exit 2**, stderr = the `SEMANTIC EVALUATION REQUIRED` payload (`semantic/payload.py`, unchanged) **+ instructions**: evaluate via the `bully-evaluator` skill (`run_skill`), `python3 -m bully log-verdict --diff-id <id> --rule <r> --verdict <pass|violation>`, then **re-apply the identical edit if clean / fix then apply if not**.
    - **verdict = pass** → exit 0 (allow). The model's re-issued identical edit → same `diff_id` → cache hit → passes. **Loop broken.**
