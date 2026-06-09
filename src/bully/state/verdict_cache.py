@@ -8,8 +8,11 @@ identical re-issued edit hits the cache and is allowed, while a *fixed* edit is
 a new diff_id and gets evaluated fresh. Verdicts are `semantic_verdict` records
 in .bully/log.jsonl carrying `diff_id`.
 
-Lookup is whole-log latest-wins. Session-scoping (so a stale verdict can't
-suppress a future session's eval) lands with the session work in M3.
+Lookup is latest-wins within the current session window: a `session_init`
+record (stamped by the SessionStart hook) resets the window, so a stale
+verdict from a previous session can't suppress a fresh evaluation. Logs with
+no `session_init` anchor (headless runs, tests) fall back to whole-log
+latest-wins.
 """
 
 from __future__ import annotations
@@ -43,6 +46,11 @@ def cached_verdict(config_path: str, did: str, rule: str) -> str | None:
                 try:
                     rec = json.loads(raw)
                 except ValueError:
+                    continue
+                if rec.get("type") == "session_init":
+                    # New session window: verdicts logged before it no longer
+                    # apply (a stale pass must not suppress a fresh eval).
+                    result = None
                     continue
                 if (
                     rec.get("type") == "semantic_verdict"
