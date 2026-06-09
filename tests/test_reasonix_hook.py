@@ -45,14 +45,34 @@ def test_passes_clean_edit(tmp_path):
     )
     assert code == 0
     assert msg == ""
+    assert not list((proj / ".bully" / "tmp").glob("pending-*"))  # temp cleaned up on pass too
 
 
 def test_write_file_new_file_is_evaluated(tmp_path):
     proj, _ = _proj(tmp_path)
-    code, _ = handle_payload(
+    code, msg = handle_payload(
         _pre(proj, {"path": "new.py", "content": "y = 1  # FORBIDDEN\n"}, tool="write_file")
     )
     assert code == 2
+    assert "no-forbidden" in msg
+    assert not (proj / "new.py").exists()  # the write never happened
+
+
+def test_multi_edit_blocks_when_a_step_introduces_violation(tmp_path):
+    proj, f = _proj(tmp_path)
+    code, msg = handle_payload(
+        _pre(
+            proj,
+            {"path": "app.py", "edits": [
+                {"old_string": "x = 1", "new_string": "x = 2"},
+                {"old_string": "x = 2", "new_string": "x = 2  # FORBIDDEN"},
+            ]},
+            tool="multi_edit",
+        )
+    )
+    assert code == 2
+    assert "no-forbidden" in msg
+    assert "FORBIDDEN" not in f.read_text()  # real file untouched
 
 
 def test_non_pretooluse_event_is_noop(tmp_path):

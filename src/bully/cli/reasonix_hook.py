@@ -97,6 +97,8 @@ def handle_payload(payload: dict) -> tuple[int, str]:
     except ConfigError as e:
         return 0, f"AGENTIC LINT -- config error: {e}\n"
     except Exception:  # noqa: BLE001 — fail open: never block on an internal bug
+        # TODO(M3): best-effort telemetry record here so a systematically
+        # crashing hook is visible. Telemetry of fail-opens lands with M3.
         return 0, ""
     return _render(result, config)
 

@@ -121,7 +121,7 @@ bully-reasonix/
 
 - **Trust:** reasonix only loads project hooks when the project is trusted; bully's own per-machine trust gate (`state/trust.py`) is retained for rule-script execution. `BULLY_TRUST_ALL=1` bypass kept for tests/CI.
 - **Latency budget:** the hook must finish well under its `timeout` (a gating-event timeout = block). Deterministic+prefilter+cache-lookup only — no model call in-hook. Set `timeout: 15000`; keep ast-grep optional/lazily skipped.
-- **Fail-open:** any internal hook error → exit 0 (never block the user on a bug); log to telemetry. A malformed payload → exit 0.
+- **Fail-open:** any internal hook error → exit 0 (never block the user on a bug); a malformed payload → exit 0. (Best-effort telemetry of fail-opens lands with the telemetry work in **M3**.)
 
 ## 9. Testing strategy
 
@@ -147,3 +147,4 @@ bully-reasonix/
 - `diff_id` normalization must be stable across the gated and re-issued edit — covered by a dedicated test.
 - Edit-tool arg schemas — **confirmed** against `internal/tool/builtin/{editfile,writefile,multiedit}.go` (`path`, `old_string`, `new_string`, `content`, `edits[]`, `replace_all`).
 - Script-rule passthroughs that resolve project-relative config by file *location* (e.g. eslint) may behave differently against the materialized temp file; deterministic grep/ast rules are unaffected. Revisit if a real passthrough needs it.
+- In the semantic `evaluate` branch, `was_write_truncated_for_path` reads the real `file_path` (stale pre-write) — **M2** must pass `content_path` (or the after-content) so a large pending `write_file` is truncation-flagged correctly. No M1 impact (semantic deferred).
