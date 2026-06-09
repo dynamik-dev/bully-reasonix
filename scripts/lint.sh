@@ -15,11 +15,11 @@ ruff check . || fail=1
 echo "=> ruff format --check"
 ruff format --check . || fail=1
 
-echo "=> shellcheck"
 if command -v shellcheck >/dev/null 2>&1; then
+  echo "=> shellcheck"
   shellcheck scripts/*.sh || fail=1
 else
-  echo "   (shellcheck not installed -- skipping)"
+  echo "=> shellcheck (not installed -- skipping)"
 fi
 
 echo "=> pytest"

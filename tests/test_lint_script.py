@@ -22,7 +22,7 @@ def test_lint_script_has_valid_bash_syntax():
     assert r.returncode == 0, r.stderr
 
 
-def test_lint_script_runs_the_four_checks():
+def test_lint_script_runs_the_checks():
     body = SCRIPT.read_text()
-    for needed in ("ruff check", "ruff format --check", "pytest", "dogfood.sh"):
+    for needed in ("ruff check", "ruff format --check", "shellcheck", "pytest", "dogfood.sh"):
         assert needed in body, f"lint.sh does not invoke {needed!r}"
