@@ -2,8 +2,10 @@
 """Reasonix hook driver: dispatch on payload.event; gate edits on PreToolUse.
 
 Wired to every event in .reasonix/settings.json via `python3 -m bully
-reasonix-hook`. M1 implements the PreToolUse deterministic path; other events
-are no-ops here (M2/M3 add semantic + session handling).
+reasonix-hook`. PreToolUse gates pending edits (deterministic block + semantic
+soft-gate) and records allowed edits to the session changed-set; Stop notifies
+on session-rule violations; UserPromptSubmit gates the turn on unsatisfied
+error session rules; SessionStart/SubagentStop stamp telemetry records.
 
 Output contract (reasonix internal/hook): the block message is read from
 STDERR; exit 2 blocks (gating events only), exit 1 = warn (notify), exit 0 =
@@ -16,13 +18,17 @@ import json
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
+from bully.cli.session import cmd_session_record, cmd_session_start
+from bully.cli.stop import cmd_subagent_stop, reasonix_prompt_gate, reasonix_stop
 from bully.config.parser import ConfigError
 from bully.diff.pending import build_pending_diff_from, compute_after
 from bully.harness.reasonix import edit_event_from_payload
 from bully.runtime.hook_io import format_blocked_stderr
 from bully.runtime.runner import run_pipeline
+from bully.state.telemetry import append_record, telemetry_path
 from bully.state.trust import untrusted_stderr
 from bully.state.verdict_cache import cached_verdict, diff_id
 
@@ -36,6 +42,24 @@ def find_config_upward(start: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def _log_fail_open(config: Path, event: str, file_path: str, exc: BaseException) -> None:
+    """Best-effort record of a swallowed hook crash, so a systematically
+    failing hook is visible to bully-review instead of silently passing."""
+    try:
+        append_record(
+            telemetry_path(str(config)),
+            {
+                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "type": "hook_fail_open",
+                "event": event,
+                "file": file_path,
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            },
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break fail-open
+        pass
 
 
 def _read_text(path: str) -> str:
@@ -111,8 +135,55 @@ def _render(result: dict, config: Path) -> tuple[int, str]:
 
 def handle_payload(payload: dict) -> tuple[int, str]:
     """Core hook logic. Returns (exit_code, stderr_message)."""
-    if payload.get("event") != "PreToolUse":
+    handlers = {
+        "PreToolUse": _handle_pretooluse,
+        "Stop": _handle_stop,
+        "UserPromptSubmit": _handle_prompt_submit,
+        "SessionStart": _handle_session_start,
+        "SubagentStop": _handle_subagent_stop,
+    }
+    handler = handlers.get(payload.get("event", ""))
+    if handler is None:
         return 0, ""
+    return handler(payload)
+
+
+def _config_from_cwd(payload: dict) -> Path | None:
+    return find_config_upward(Path(payload.get("cwd") or "."))
+
+
+def _handle_stop(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is None:
+        return 0, ""
+    return reasonix_stop(str(config))
+
+
+def _handle_prompt_submit(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is None:
+        return 0, ""
+    return reasonix_prompt_gate(str(config))
+
+
+def _handle_session_start(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is not None:
+        # Stamps the session_init telemetry record that anchors the verdict
+        # cache and semantic windows. Its stdout banner is discarded: exit 0
+        # is a pass outcome and Reasonix skips those.
+        cmd_session_start(str(config))
+    return 0, ""
+
+
+def _handle_subagent_stop(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is not None:
+        cmd_subagent_stop(str(config))
+    return 0, ""
+
+
+def _handle_pretooluse(payload: dict) -> tuple[int, str]:
     ev = edit_event_from_payload(payload)
     if ev is None or not ev.file_path:
         return 0, ""
@@ -133,11 +204,22 @@ def handle_payload(payload: dict) -> tuple[int, str]:
                 pass
     except ConfigError as e:
         return 0, f"AGENTIC LINT -- config error: {e}\n"
-    except Exception:  # noqa: BLE001 — fail open: never block on an internal bug
-        # TODO(M3): best-effort telemetry record here so a systematically
-        # crashing hook is visible. Telemetry of fail-opens lands with M3.
+    except Exception as e:  # noqa: BLE001 — fail open: never block on an internal bug
+        _log_fail_open(config, "PreToolUse", ev.file_path, e)
         return 0, ""
-    return _render(result, config)
+    code, msg = _render(result, config)
+    if code != 2 and result.get("status") != "untrusted":
+        # Only exit 2 stops the tool, so this edit will land: add it to the
+        # session changed-set for the Stop / UserPromptSubmit session rules.
+        # Anchor on the cwd config — the one Stop/UserPromptSubmit read —
+        # not the file's (a nested config would split the changed-set).
+        session_config = _config_from_cwd(payload)
+        if session_config is not None:
+            try:
+                cmd_session_record(str(session_config), ev.file_path)
+            except Exception:  # noqa: BLE001 — recording must never break the gate
+                pass
+    return code, msg
 
 
 def run_reasonix_hook() -> int:
@@ -146,7 +228,10 @@ def run_reasonix_hook() -> int:
         payload = json.loads(raw) if raw.strip() else {}
     except json.JSONDecodeError:
         return 0
-    code, msg = handle_payload(payload if isinstance(payload, dict) else {})
+    try:
+        code, msg = handle_payload(payload if isinstance(payload, dict) else {})
+    except Exception:  # noqa: BLE001 — fail open at the outermost boundary
+        return 0
     if msg:
         sys.stderr.write(msg)
     return code

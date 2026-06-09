@@ -7,6 +7,32 @@
         "timeout": 15000,
         "description": "bully-reasonix deterministic lint gate"
       }
+    ],
+    "Stop": [
+      {
+        "command": "python3 -m bully reasonix-hook",
+        "timeout": 15000,
+        "description": "bully-reasonix session-rule check (notify)"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "python3 -m bully reasonix-hook",
+        "timeout": 10000,
+        "description": "bully-reasonix session-rule gate"
+      }
+    ],
+    "SessionStart": [
+      {
+        "command": "python3 -m bully reasonix-hook",
+        "description": "bully-reasonix session_init telemetry stamp"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "command": "python3 -m bully reasonix-hook",
+        "description": "bully-reasonix subagent telemetry stamp"
+      }
     ]
   }
 }

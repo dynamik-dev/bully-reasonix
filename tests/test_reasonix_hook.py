@@ -1,4 +1,6 @@
 # tests/test_reasonix_hook.py
+import io
+import json
 import textwrap
 
 from bully.cli.reasonix_hook import handle_payload
@@ -94,3 +96,33 @@ def test_no_config_is_noop(tmp_path):
 
 def test_malformed_payload_fails_open(tmp_path):
     assert handle_payload({}) == (0, "")
+
+
+def test_internal_error_fails_open_and_logs(tmp_path, monkeypatch):
+    proj, _ = _proj(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr("bully.cli.reasonix_hook.run_pipeline", boom)
+    code, msg = handle_payload(
+        _pre(proj, {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"})
+    )
+    assert (code, msg) == (0, "")  # fail open: the edit is not blocked
+    lines = (proj / ".bully" / "log.jsonl").read_text().splitlines()
+    rec = json.loads([ln for ln in lines if "hook_fail_open" in ln][-1])
+    assert rec["type"] == "hook_fail_open"
+    assert rec["event"] == "PreToolUse"
+    assert rec["file"].endswith("app.py")
+    assert "RuntimeError" in rec["error"]
+
+
+def test_top_level_guard_fails_open(tmp_path, monkeypatch):
+    from bully.cli import reasonix_hook as rh
+
+    def boom(payload):
+        raise RuntimeError("dispatch exploded")
+
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"event": "Stop", "cwd": "/nonexistent"}'))
+    monkeypatch.setattr(rh, "handle_payload", boom)
+    assert rh.run_reasonix_hook() == 0

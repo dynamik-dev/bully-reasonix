@@ -26,10 +26,10 @@ from bully.cli.session import (
     cmd_session_start as _cmd_session_start,
 )
 from bully.cli.stop import (
-    cmd_stop as _cmd_stop,
+    cmd_subagent_stop as _cmd_subagent_stop,
 )
 from bully.cli.stop import (
-    cmd_subagent_stop as _cmd_subagent_stop,
+    reasonix_stop as _reasonix_stop,
 )
 from bully.config.loader import parse_config, resolve_max_workers
 from bully.config.parser import (
