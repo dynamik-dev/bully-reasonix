@@ -26,6 +26,9 @@ Bully's engine — Python, stdlib-only, two-phase pipeline (deterministic script
 
 ## Status
 
-Greenfield; nothing ported yet. First slice: a `PreToolUse` hook in `.reasonix/settings.json` that shells the existing pipeline against `ToolArgs`. Re-validate with `../bully/tests` fixtures.
+Target: Reasonix **Go line** (local CLI `1.4.0-rc.1`; contracts validated vs `v1.4.0`). Design: `docs/superpowers/specs/2026-06-09-bully-reasonix-port-design.md`; plans in `docs/superpowers/plans/`.
+
+- **M1 done:** deterministic `PreToolUse` blocking — `python3 -m bully reasonix-hook` decodes the pending edit, materializes it to a temp `content_path`, runs the script/AST engine, exits 2 to block (real file untouched). Wired in `.reasonix/settings.json`.
+- **Next:** M2 semantic soft-gate + session verdict-cache (spec §5b).
 
 > This file guides development _in Claude Code_. The shipped product's standing instructions belong in **`REASONIX.md`** (Reasonix's memory file — it does not auto-load `CLAUDE.md`).

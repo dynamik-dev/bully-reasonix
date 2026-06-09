@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "match": "edit_file|write_file|multi_edit",
+        "command": "python3 -m bully reasonix-hook",
+        "timeout": 15000,
+        "description": "bully-reasonix deterministic lint gate"
+      }
+    ]
+  }
+}
