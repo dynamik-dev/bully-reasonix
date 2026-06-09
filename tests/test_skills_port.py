@@ -80,3 +80,13 @@ def test_bully_scheduler_is_a_subagent_skill():
     _assert_no_claude_isms(text, "skills/bully-scheduler")
     assert "python3 -m bully.semantic.analyzer" in body
     assert "bully-scheduler:" in body  # PR-title prefix contract
+
+
+def test_bully_init_is_reasonix_native():
+    text = _read("skills/bully-init/SKILL.md")
+    assert _frontmatter(text).get("name") == "bully-init"
+    _assert_no_claude_isms(text, "skills/bully-init")
+    assert "PreToolUse" in text
+    assert "reasonix-hook" in text  # offers the hooks wiring block
+    assert "[skills]" in text       # offers the reasonix.toml paths entry
+    assert 'command -v bully 2>/dev/null || echo "python3 -m bully"' in text
