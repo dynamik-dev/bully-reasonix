@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bully.cli.session import cmd_session_record, cmd_session_start
@@ -25,6 +26,7 @@ from bully.diff.pending import build_pending_diff_from, compute_after
 from bully.harness.reasonix import edit_event_from_payload
 from bully.runtime.hook_io import format_blocked_stderr
 from bully.runtime.runner import run_pipeline
+from bully.state.telemetry import append_record, telemetry_path
 from bully.state.trust import untrusted_stderr
 from bully.state.verdict_cache import cached_verdict, diff_id
 
@@ -38,6 +40,24 @@ def find_config_upward(start: Path) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def _log_fail_open(config: Path, event: str, file_path: str, exc: BaseException) -> None:
+    """Best-effort record of a swallowed hook crash, so a systematically
+    failing hook is visible to bully-review instead of silently passing."""
+    try:
+        append_record(
+            telemetry_path(str(config)),
+            {
+                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "type": "hook_fail_open",
+                "event": event,
+                "file": file_path,
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+            },
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break fail-open
+        pass
 
 
 def _read_text(path: str) -> str:
@@ -182,8 +202,8 @@ def _handle_pretooluse(payload: dict) -> tuple[int, str]:
                 pass
     except ConfigError as e:
         return 0, f"AGENTIC LINT -- config error: {e}\n"
-    except Exception:  # noqa: BLE001 — fail open: never block on an internal bug
-        # TODO(M3 Task 4): best-effort hook_fail_open telemetry record here.
+    except Exception as e:  # noqa: BLE001 — fail open: never block on an internal bug
+        _log_fail_open(config, "PreToolUse", ev.file_path, e)
         return 0, ""
     code, msg = _render(result, config)
     if code != 2 and result.get("status") != "untrusted":
@@ -202,7 +222,10 @@ def run_reasonix_hook() -> int:
         payload = json.loads(raw) if raw.strip() else {}
     except json.JSONDecodeError:
         return 0
-    code, msg = handle_payload(payload if isinstance(payload, dict) else {})
+    try:
+        code, msg = handle_payload(payload if isinstance(payload, dict) else {})
+    except Exception:  # noqa: BLE001 — fail open at the outermost boundary
+        return 0
     if msg:
         sys.stderr.write(msg)
     return code
