@@ -48,6 +48,10 @@ def main() -> None:
         sys.exit(cmd_stop_main(sys.argv[2:]))
     if len(sys.argv) >= 2 and sys.argv[1] == "subagent-stop":
         sys.exit(cmd_subagent_stop_main(sys.argv[2:]))
+    if len(sys.argv) >= 2 and sys.argv[1] == "reasonix-hook":
+        from bully.cli.reasonix_hook import run_reasonix_hook  # noqa: PLC0415
+
+        sys.exit(run_reasonix_hook())
     if len(sys.argv) >= 2 and sys.argv[1] == "session-record":
         sys.exit(cmd_session_record_main(sys.argv[2:]))
     if len(sys.argv) >= 2 and sys.argv[1] == "coverage":
