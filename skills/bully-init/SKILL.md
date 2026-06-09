@@ -78,9 +78,9 @@ If the detected stack has no linter installed and one is conventional (ruff for 
 
 Installing touches `package.json` / `pyproject.toml` / `composer.json` / CI, so this must be an explicit user opt-in. Never install silently. If the user declines, move on -- their `.bully.yml` can still cover everything via `ast`/`script`/`semantic` rules.
 
-## Step 2c: Migrate project-specific rules (CLAUDE.md sections, arch tests, team conventions)
+## Step 2c: Migrate project-specific rules (REASONIX.md sections, arch tests, team conventions)
 
-For each custom rule found (`CLAUDE.md`/`AGENTS.md` guidelines, Pest `arch()` tests, team docs, prose rules), route it using the same four-option decision tree as `bully-author`:
+For each custom rule found (`REASONIX.md`/`AGENTS.md`/`CLAUDE.md` guidelines, Pest `arch()` tests, team docs, prose rules), route it using the same four-option decision tree as `bully-author`:
 
 1. **Linter passthrough** -- can an installed linter (or one the user just opted into) enforce this with a rule-config edit? If yes, edit the linter's config AND queue a passthrough rule (if not already added in Step 2).
 2. **ast** -- structural pattern, no linter covers it. Queue an `engine: ast` rule. Requires ast-grep installed.
