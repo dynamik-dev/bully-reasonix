@@ -12,8 +12,11 @@
 
 ## What we are NOT touching (invariants to preserve)
 
-- **`src/bully/` is byte-identical to the port snapshot, except `cli/doctor.py`.** W2 adds *no* code under `src/bully/`. In particular: **do NOT change `BULLY_VERSION = "0.8.6"` in `src/bully/__init__.py`.** That constant is the telemetry *producer* tag tracking the engine snapshot, not the distribution version. The release version lives only in `pyproject.toml`. Conflating them would break the byte-identical engine invariant the M4 review protected.
+- **The verbatim-copied upstream engine modules stay byte-identical to the port snapshot.** These are: `src/bully/config/*`, `src/bully/runtime/*`, `src/bully/engines/*`, `src/bully/semantic/payload.py`, `src/bully/state/{baseline,trust,telemetry}.py`, `src/bully/diff/{analysis,context}.py`. W2 must not change any of them. In particular: **do NOT change `BULLY_VERSION = "0.8.6"` in `src/bully/__init__.py`.** That constant is the telemetry *producer* tag tracking the engine snapshot, not the distribution version. The release version lives only in `pyproject.toml`. Conflating them would break the engine invariant the M4 review protected.
+- **W2 does NOT add new *logic* under `src/bully/`.** It does, however, reformat the port-authored seam files (`cli/reasonix_hook.py`, `harness/reasonix.py`) and the port-modified `cli/args.py` — see the T2.1 note below. Those are bully-reasonix's own code, not the verbatim engine, so reformatting them preserves the invariant above.
 - No new pytest changes to existing engine/harness tests. W2 only *adds* test files for the two new scripts.
+
+> **T2.1 (discovered during execution):** introducing `ruff format --check` into the gate surfaced that M1–M4 enforced only `ruff check` (lint), never the formatter. A dedicated commit reformatted the port-authored files (the two seam files, `cli/args.py`, and the new port test files) so the gate is green. Verified to touch **zero** verbatim engine modules. The Task 5 invariant check below targets the engine modules specifically, not "all of `src/bully/`."
 
 ## File Structure
 
@@ -584,9 +587,19 @@ clean, `ruff format --check` clean, pytest reports **all** tests passing (the pr
 
 - [ ] **Step 2: Confirm the engine invariant held across the whole wave**
 
-Run: `git diff 325edb9 -- src/bully/ | head`
-Expected: **empty** — W2 changed nothing under `src/bully/` (doctor was already
-rewritten in M4; W2 adds only scripts, docs, tests, and root product files).
+Run (the verbatim engine modules must be untouched):
+```bash
+git diff 325edb9..HEAD --name-only -- 'src/bully/config/*' 'src/bully/runtime/*' \
+  'src/bully/engines/*' 'src/bully/semantic/payload.py' 'src/bully/state/baseline.py' \
+  'src/bully/state/trust.py' 'src/bully/state/telemetry.py' 'src/bully/diff/analysis.py' \
+  'src/bully/diff/context.py'
+```
+Expected: **empty** — no verbatim engine module changed.
+
+Then confirm the only `src/bully/` changes are the expected T2.1 reformats:
+Run: `git diff 325edb9..HEAD --name-only -- 'src/bully/*'`
+Expected: exactly `cli/args.py`, `cli/reasonix_hook.py`, `harness/reasonix.py` (the
+port-authored files reformatted in T2.1 — no logic change), and nothing else.
 
 - [ ] **Step 3: Confirm the tree is clean and the version is set**
 
