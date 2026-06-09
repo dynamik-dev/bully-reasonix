@@ -57,3 +57,88 @@ def test_warned_edit_is_recorded(tmp_path):
     )
     assert code == 1
     assert _recorded(proj) == [str(f)]
+
+
+from bully.cli.stop import reasonix_prompt_gate, reasonix_stop
+
+
+def _session_proj(tmp_path):
+    # NOTE: when/require must be block-style nested mappings — the stdlib
+    # mini-YAML parser does not accept flow mappings.
+    (tmp_path / ".bully.yml").write_text(textwrap.dedent("""\
+        schema_version: 1
+        rules:
+          src-needs-tests:
+            description: "Changes under src/ require a test change."
+            engine: session
+            severity: error
+            when:
+              changed_any: ['src/**']
+            require:
+              changed_any: ['tests/**']
+    """))
+    return tmp_path
+
+
+def _write_session(proj, files):
+    bd = proj / ".bully"
+    bd.mkdir(exist_ok=True)
+    (bd / "session.jsonl").write_text("".join(json.dumps({"file": f}) + "\n" for f in files))
+
+
+def _warning_variant(proj):
+    cfg = (proj / ".bully.yml").read_text().replace("severity: error", "severity: warning")
+    (proj / ".bully.yml").write_text(cfg)
+
+
+def test_stop_no_session_file_is_silent(tmp_path):
+    proj = _session_proj(tmp_path)
+    assert reasonix_stop(str(proj / ".bully.yml")) == (0, "")
+
+
+def test_stop_satisfied_resets_changed_set(tmp_path):
+    proj = _session_proj(tmp_path)
+    _write_session(proj, ["src/auth.py", "tests/test_auth.py"])
+    assert reasonix_stop(str(proj / ".bully.yml")) == (0, "")
+    assert not (proj / ".bully" / "session.jsonl").exists()
+
+
+def test_stop_error_violation_notifies_and_keeps_set(tmp_path):
+    proj = _session_proj(tmp_path)
+    _write_session(proj, ["src/auth.py"])
+    code, msg = reasonix_stop(str(proj / ".bully.yml"))
+    assert code == 1                                   # notify -- Stop can't block in Reasonix
+    assert "src-needs-tests" in msg
+    assert "gate the next prompt" in msg
+    assert (proj / ".bully" / "session.jsonl").exists()  # kept for the prompt gate
+
+
+def test_stop_warning_only_notifies_and_resets(tmp_path):
+    proj = _session_proj(tmp_path)
+    _warning_variant(proj)
+    _write_session(proj, ["src/auth.py"])
+    code, msg = reasonix_stop(str(proj / ".bully.yml"))
+    assert code == 1
+    assert "src-needs-tests" in msg
+    assert not (proj / ".bully" / "session.jsonl").exists()  # warnings don't gate
+
+
+def test_prompt_gate_blocks_on_unsatisfied_error_rule(tmp_path):
+    proj = _session_proj(tmp_path)
+    _write_session(proj, ["src/auth.py"])
+    code, msg = reasonix_prompt_gate(str(proj / ".bully.yml"))
+    assert code == 2
+    assert "src-needs-tests" in msg
+
+
+def test_prompt_gate_clean_passes(tmp_path):
+    proj = _session_proj(tmp_path)
+    _write_session(proj, ["src/auth.py", "tests/test_auth.py"])
+    assert reasonix_prompt_gate(str(proj / ".bully.yml")) == (0, "")
+
+
+def test_prompt_gate_warning_only_passes(tmp_path):
+    proj = _session_proj(tmp_path)
+    _warning_variant(proj)
+    _write_session(proj, ["src/auth.py"])
+    assert reasonix_prompt_gate(str(proj / ".bully.yml")) == (0, "")
