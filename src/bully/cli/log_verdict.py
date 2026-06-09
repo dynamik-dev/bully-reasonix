@@ -8,7 +8,11 @@ from bully.state.telemetry import append_record, telemetry_path
 
 
 def cmd_log_verdict(
-    config_path: str | None, rule_id: str, verdict: str, file_path: str | None
+    config_path: str | None,
+    rule_id: str,
+    verdict: str,
+    file_path: str | None,
+    diff_id: str | None = None,
 ) -> int:
     path = config_path or ".bully.yml"
     log_path = telemetry_path(path)
@@ -20,5 +24,7 @@ def cmd_log_verdict(
     }
     if file_path:
         record["file"] = file_path
+    if diff_id:
+        record["diff_id"] = diff_id
     append_record(log_path, record)
     return 0

@@ -79,7 +79,7 @@ def main() -> None:
             )
             sys.exit(1)
         rule_id = args.rule[0] if args.rule else ""
-        sys.exit(cmd_log_verdict(args.config, rule_id, args.verdict, args.file_path))
+        sys.exit(cmd_log_verdict(args.config, rule_id, args.verdict, args.file_path, args.diff_id))
     if args.hook_mode:
         sys.exit(run_hook_mode())
 
