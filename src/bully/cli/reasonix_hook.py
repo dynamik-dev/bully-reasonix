@@ -18,6 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from bully.cli.session import cmd_session_record
 from bully.config.parser import ConfigError
 from bully.diff.pending import build_pending_diff_from, compute_after
 from bully.harness.reasonix import edit_event_from_payload
@@ -111,8 +112,12 @@ def _render(result: dict, config: Path) -> tuple[int, str]:
 
 def handle_payload(payload: dict) -> tuple[int, str]:
     """Core hook logic. Returns (exit_code, stderr_message)."""
-    if payload.get("event") != "PreToolUse":
-        return 0, ""
+    if payload.get("event") == "PreToolUse":
+        return _handle_pretooluse(payload)
+    return 0, ""
+
+
+def _handle_pretooluse(payload: dict) -> tuple[int, str]:
     ev = edit_event_from_payload(payload)
     if ev is None or not ev.file_path:
         return 0, ""
@@ -134,10 +139,17 @@ def handle_payload(payload: dict) -> tuple[int, str]:
     except ConfigError as e:
         return 0, f"AGENTIC LINT -- config error: {e}\n"
     except Exception:  # noqa: BLE001 — fail open: never block on an internal bug
-        # TODO(M3): best-effort telemetry record here so a systematically
-        # crashing hook is visible. Telemetry of fail-opens lands with M3.
+        # TODO(M3 Task 4): best-effort hook_fail_open telemetry record here.
         return 0, ""
-    return _render(result, config)
+    code, msg = _render(result, config)
+    if code != 2 and result.get("status") != "untrusted":
+        # Only exit 2 stops the tool, so this edit will land: add it to the
+        # session changed-set for the Stop / UserPromptSubmit session rules.
+        try:
+            cmd_session_record(str(config), ev.file_path)
+        except Exception:  # noqa: BLE001 — recording must never break the gate
+            pass
+    return code, msg
 
 
 def run_reasonix_hook() -> int:
