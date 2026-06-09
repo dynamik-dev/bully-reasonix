@@ -65,7 +65,7 @@ def test_bully_skill_runs_the_soft_gate_loop():
     assert "AGENTIC LINT SEMANTIC EVALUATION REQUIRED" in body
     assert 'run_skill(name="bully-evaluator"' in body
     assert "--log-verdict --diff-id" in body
-    assert "prior verdict" in body
+    assert "AGENTIC LINT -- blocked (semantic, prior verdict). Fix before proceeding:" in body
     assert "AGENTIC LINT -- unsatisfied session rules gate this turn" in body
 
 
