@@ -100,3 +100,13 @@ def test_bully_author_is_reasonix_native():
     assert 'command -v bully 2>/dev/null || echo "python3 -m bully"' in text
     assert "scripts/dogfood.sh" not in text
     assert "--print-prompt" in text  # fixture protocol survived the port
+
+
+def test_bully_review_is_reasonix_native():
+    text = _read("skills/bully-review/SKILL.md")
+    assert _frontmatter(text).get("name") == "bully-review"
+    _assert_no_claude_isms(text, "skills/bully-review")
+    assert "python3 -m bully.semantic.analyzer" in text
+    assert "hook_fail_open" in text
+    assert "session_init" in text
+    assert "/bully-scheduler" in text
