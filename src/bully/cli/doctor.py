@@ -1,9 +1,10 @@
-"""`bully doctor` subcommand: runtime + plugin diagnostic checks."""
+"""`bully doctor` subcommand: runtime + Reasonix wiring diagnostics."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -13,6 +14,20 @@ from bully.engines.ast_grep import AST_GREP_INSTALL_HINT, ast_grep_available
 from bully.state.trust import trust_status
 
 _MIN_PYTHON = (3, 10)
+
+# Mirrors reasonix v1.4.0 (internal/skill/skill.go, internal/config): skills are
+# discovered at <dir>/skills/<name>/SKILL.md (or <name>.md) under the convention
+# dirs for project root and home; reasonix.toml [skills] paths are additional
+# roots used AS-IS (no "skills" suffix appended).
+_CONVENTION_DIRS = (".reasonix", ".agents", ".agent", ".claude")
+_EDIT_TOOLS = ("edit_file", "write_file", "multi_edit")
+_SESSION_EVENTS = ("Stop", "UserPromptSubmit")
+_STAMP_EVENT_WARNINGS = {
+    "SessionStart": "no session_init stamps; the semantic verdict cache will span sessions",
+    "SubagentStop": "evaluator completions will not be stamped in telemetry",
+}
+_REQUIRED_SKILL = "bully-evaluator"
+_COMPANION_SKILLS = ("bully", "bully-init", "bully-author", "bully-review", "bully-scheduler")
 
 
 def check_python_version(version_info: tuple[int, int] = sys.version_info[:2]) -> tuple[bool, str]:
@@ -28,25 +43,94 @@ def check_python_version(version_info: tuple[int, int] = sys.version_info[:2]) -
     return False, f"[FAIL] Python {major}.{minor} < {need} -- upgrade required"
 
 
-def plugin_cache_candidates(resource_kind: str, name: str) -> list[Path]:
-    """Return plausible `~/.claude/plugins/cache/*/bully/*/{skills,agents}/<name>/...` paths.
+def read_skills_paths(toml_path: Path) -> list[str]:
+    """Extract `[skills] paths` from a reasonix.toml.
 
-    resource_kind is "skills" or "agents". For skills, the file is `<name>/SKILL.md`;
-    for agents, the file is `<name>.md` directly under `agents/`.
+    tomllib when available (3.11+); a minimal regex fallback on 3.10. This is
+    diagnostic-grade extraction, not a TOML parser -- exotic syntax may be
+    missed, which costs a WARN downstream, never a crash.
     """
-    root = Path.home() / ".claude" / "plugins" / "cache"
-    if not root.is_dir():
+    try:
+        text = toml_path.read_text()
+    except OSError:
         return []
-    pattern = f"*/bully/*/{resource_kind}/"
-    out: list[Path] = []
-    for base in root.glob(pattern):
-        candidate = base / name / "SKILL.md" if resource_kind == "skills" else base / f"{name}.md"
-        if candidate.is_file():
-            out.append(candidate)
-    return out
+    try:
+        import tomllib
+    except ImportError:
+        tomllib = None
+    if tomllib is not None:
+        try:
+            skills = tomllib.loads(text).get("skills", {})
+        except tomllib.TOMLDecodeError:
+            return []
+        paths = skills.get("paths", []) if isinstance(skills, dict) else []
+        return [p for p in paths if isinstance(p, str)]
+    section = re.search(r"(?ms)^\[skills\]\s*$(.*?)(?=^\[|\Z)", text)
+    if section is None:
+        return []
+    arr = re.search(r"(?ms)^\s*paths\s*=\s*\[(.*?)\]", section.group(1))
+    if arr is None:
+        return []
+    return [p.strip().strip("\"'") for p in arr.group(1).split(",") if p.strip().strip("\"'")]
 
 
-def cmd_doctor() -> int:
+def skill_roots(root: Path) -> list[Path]:
+    """Skill discovery roots in reasonix priority order: project convention
+    dirs, reasonix.toml custom paths (as-is; ~ and relative expanded against
+    the project root), home convention dirs."""
+    roots = [root / c / "skills" for c in _CONVENTION_DIRS]
+    for raw in read_skills_paths(root / "reasonix.toml"):
+        p = Path(os.path.expanduser(raw))
+        roots.append(p if p.is_absolute() else root / p)
+    roots.extend(Path.home() / c / "skills" for c in _CONVENTION_DIRS)
+    return roots
+
+
+def find_skill(name: str, roots: list[Path]) -> Path | None:
+    for r in roots:
+        for candidate in (r / name / "SKILL.md", r / f"{name}.md"):
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def match_covers_edit_tools(match: str | None) -> bool:
+    """True when a hook entry's matcher hits all three edit tools.
+
+    Reasonix anchors the regex (^(?:m)$); a missing matcher matches every tool.
+    """
+    if not match:
+        return True
+    try:
+        pattern = re.compile(f"^(?:{match})$")
+    except re.error:
+        return False
+    return all(pattern.match(t) for t in _EDIT_TOOLS)
+
+
+def _load_hooks(settings_path: Path) -> dict:
+    try:
+        data = json.loads(settings_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    hooks = data.get("hooks", {}) if isinstance(data, dict) else {}
+    return hooks if isinstance(hooks, dict) else {}
+
+
+def hook_entry_for(event: str, settings_files: list[Path]) -> tuple[dict, Path] | None:
+    """First hook entry for `event` (project file wins) that runs the bully hook."""
+    for settings in settings_files:
+        entries = _load_hooks(settings).get(event)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, dict) and "reasonix-hook" in str(entry.get("command", "")):
+                return entry, settings
+    return None
+
+
+def cmd_doctor(root: Path | None = None) -> int:
+    root = (root or Path.cwd()).resolve()
     ok = True
 
     py_ok, py_msg = check_python_version()
@@ -54,11 +138,11 @@ def cmd_doctor() -> int:
     if not py_ok:
         ok = False
 
-    cfg = Path.cwd() / ".bully.yml"
+    cfg = root / ".bully.yml"
     if cfg.is_file():
         print(f"[OK] config present at {cfg}")
     else:
-        print(f"[FAIL] no .bully.yml at {Path.cwd()}")
+        print(f"[FAIL] no .bully.yml at {root}")
         ok = False
 
     parsed_rules: list[Rule] = []
@@ -94,65 +178,65 @@ def cmd_doctor() -> int:
             )
             ok = False
 
-    hook_wired = False
-    for settings in (
-        Path.cwd() / ".claude" / "settings.json",
-        Path.home() / ".claude" / "settings.json",
-    ):
-        if not settings.is_file():
-            continue
-        try:
-            data = json.loads(settings.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        hooks = data.get("hooks", {})
-        entries = hooks.get("PostToolUse", [])
-        if isinstance(entries, list):
-            for entry in entries:
-                for h in entry.get("hooks", []) if isinstance(entry, dict) else []:
-                    if "hook.sh" in str(h.get("command", "")):
-                        hook_wired = True
-                        break
-                if hook_wired:
-                    break
-        if hook_wired:
-            print(f"[OK] PostToolUse hook wired in {settings}")
-            break
-    if not hook_wired:
-        print("[FAIL] no PostToolUse hook invoking hook.sh found in .claude/settings.json")
-        ok = False
+    # --- Reasonix hook wiring ------------------------------------------------
+    settings_files = [
+        root / ".reasonix" / "settings.json",
+        Path.home() / ".reasonix" / "settings.json",
+    ]
+    has_session_rules = any(r.engine == "session" for r in parsed_rules)
 
-    claude_home = Path(os.environ.get("CLAUDE_HOME", str(Path.home() / ".claude")))
-    agent_file = claude_home / "agents" / "bully-evaluator.md"
-    plugin_agents = plugin_cache_candidates("agents", "bully-evaluator")
-    if agent_file.is_file():
-        print(f"[OK] evaluator agent at {agent_file}")
-    elif plugin_agents:
-        print(f"[OK] evaluator agent at {plugin_agents[0]} (plugin install)")
-    else:
+    pre = hook_entry_for("PreToolUse", settings_files)
+    if pre is None:
         print(
-            f"[FAIL] evaluator agent missing -- expected at {agent_file} "
-            f"or under ~/.claude/plugins/cache/*/bully/*/agents/bully-evaluator.md"
+            "[FAIL] no PreToolUse hook running `python3 -m bully reasonix-hook` in "
+            f"{settings_files[0]} or ~/.reasonix/settings.json -- edits are not linted"
         )
         ok = False
-
-    for suffix in (
-        "bully",
-        "bully-init",
-        "bully-author",
-        "bully-review",
-    ):
-        skill_md = Path.home() / ".claude" / "skills" / suffix / "SKILL.md"
-        plugin_skill = plugin_cache_candidates("skills", suffix)
-        if skill_md.is_file():
-            print(f"[OK] skill {suffix} present")
-        elif plugin_skill:
-            print(f"[OK] skill {suffix} present at {plugin_skill[0]} (plugin install)")
+    else:
+        entry, source = pre
+        if match_covers_edit_tools(entry.get("match")):
+            print(f"[OK] PreToolUse hook wired in {source}")
         else:
             print(
-                f"[FAIL] skill {suffix} missing -- expected at {skill_md} "
-                f"or under ~/.claude/plugins/cache/*/bully/*/skills/{suffix}/SKILL.md"
+                f"[FAIL] PreToolUse hook in {source} has match={entry.get('match')!r} "
+                "which does not cover edit_file|write_file|multi_edit"
             )
             ok = False
+
+    for event in _SESSION_EVENTS:
+        found = hook_entry_for(event, settings_files)
+        if found is not None:
+            print(f"[OK] {event} hook wired in {found[1]}")
+        elif has_session_rules:
+            print(f"[FAIL] {event} hook not wired -- engine: session rules will not be enforced")
+            ok = False
+        else:
+            print(f"[WARN] {event} hook not wired (needed only for engine: session rules)")
+
+    for event, consequence in _STAMP_EVENT_WARNINGS.items():
+        found = hook_entry_for(event, settings_files)
+        if found is not None:
+            print(f"[OK] {event} hook wired in {found[1]}")
+        else:
+            print(f"[WARN] {event} hook not wired -- {consequence}")
+
+    # --- Skill discovery -----------------------------------------------------
+    roots = skill_roots(root)
+    required = find_skill(_REQUIRED_SKILL, roots)
+    if required is not None:
+        print(f"[OK] skill {_REQUIRED_SKILL} at {required}")
+    else:
+        print(
+            f"[FAIL] skill {_REQUIRED_SKILL} missing -- the semantic soft-gate dispatches it. "
+            "Searched project/home {.reasonix,.agents,.agent,.claude}/skills and "
+            "reasonix.toml [skills] paths"
+        )
+        ok = False
+    for name in _COMPANION_SKILLS:
+        found = find_skill(name, roots)
+        if found is not None:
+            print(f"[OK] skill {name} at {found}")
+        else:
+            print(f"[WARN] skill {name} missing -- /{name} will not be available")
 
     return 0 if ok else 1

@@ -1,0 +1,245 @@
+# Telemetry and self-improvement
+
+Every pipeline run appends a record to `.bully/log.jsonl`. The `bully-review` skill reads that log and classifies rule health so the config can evolve with the codebase. The semantic soft-gate's verdict cache reads the same log to decide which pending edits to admit.
+
+## Storage
+
+Telemetry is mandatory plumbing, not a feature — there is no toggle, no opt-out, and no telemetry key in `.bully.yml`. The first time bully runs in a project it provisions `.bully/` next to `.bully.yml` and writes a `.bully/.gitignore` containing `*`, so this local runtime state ignores itself and never lands in a commit — no entry in the repo's root `.gitignore` required.
+
+The log is byte-capped (`MAX_LOG_BYTES`, default 5 MB). On overflow the oldest records are dropped and the newest retained, so an always-on log stays bounded without any user action.
+
+## What gets logged
+
+One JSONL record per pipeline run. Each record captures the overall result plus a per-rule breakdown.
+
+```json
+{
+  "ts": "2026-04-16T18:00:00Z",
+  "file": "src/Stores/EloquentRoleStore.php",
+  "status": "blocked",
+  "latency_ms": 20,
+  "rules": [
+    {
+      "id": "no-compact",
+      "engine": "script",
+      "verdict": "violation",
+      "severity": "error",
+      "line": 42,
+      "latency_ms": 9
+    },
+    {
+      "id": "no-db-facade",
+      "engine": "script",
+      "verdict": "pass",
+      "severity": "error",
+      "latency_ms": 6
+    },
+    {
+      "id": "inline-single-use-vars",
+      "engine": "semantic",
+      "verdict": "evaluate_requested",
+      "severity": "error"
+    }
+  ]
+}
+```
+
+### Fields
+
+Record-level:
+
+| Field | Description |
+|-------|-------------|
+| `ts` | ISO-8601 UTC timestamp (second precision). |
+| `file` | File the pipeline ran against. |
+| `status` | `pass`, `evaluate`, or `blocked`. |
+| `latency_ms` | Total pipeline wall-clock time. |
+| `rules` | Per-rule breakdown. |
+
+Per-rule:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Rule id from `.bully.yml`. |
+| `engine` | `script`, `ast`, or `semantic`. |
+| `verdict` | `pass`, `violation`, or `evaluate_requested`. |
+| `severity` | `error` or `warning`. |
+| `line` | Line number of the first violation (deterministic rules only). |
+| `latency_ms` | Per-rule latency (deterministic rules only). |
+| `error` | `true` when the rule itself raised an exception during evaluation (converted to a blocking `severity=error` violation). Omitted otherwise. |
+
+### Verdict meanings
+
+- **`pass`** — script rule ran and returned exit 0.
+- **`violation`** — script rule ran and returned non-zero.
+- **`evaluate_requested`** — semantic rule was included in the payload sent to the agent. Paired later by a `semantic_verdict` record once the skill reports back.
+
+## Semantic verdicts and skips
+
+The pipeline ships two extra record types that close the semantic-rule telemetry loop.
+
+### `semantic_verdict`
+
+After the `bully` skill finishes evaluating a semantic payload, it calls:
+
+```bash
+bully --log-verdict \
+  --rule inline-single-use-vars \
+  --file src/Evaluators/CachedEvaluator.php \
+  --verdict violation
+```
+
+which appends a record like:
+
+```json
+{
+  "ts": "2026-04-16T18:00:05Z",
+  "type": "semantic_verdict",
+  "file": "src/Evaluators/CachedEvaluator.php",
+  "rule": "inline-single-use-vars",
+  "verdict": "violation",
+  "severity": "error"
+}
+```
+
+`verdict` is `pass` or `violation`. The record is keyed by rule id and file, which is enough for the analyzer to pair it with the earlier `evaluate_requested` line.
+
+### `semantic_skipped`
+
+Before dispatching the evaluator the pipeline applies cheap "can't possibly match" filters (empty diffs, whitespace-only additions, comment-only additions on identifier-targeting rules, pure deletions for "avoid X" rules). When a filter preempts a dispatch, the pipeline writes:
+
+```json
+{
+  "ts": "2026-04-16T18:00:00Z",
+  "type": "semantic_skipped",
+  "file": "src/Foo.php",
+  "rule": "inline-single-use-vars",
+  "reason": "whitespace_only"
+}
+```
+
+`reason` is one of `empty-diff`, `whitespace-only-additions`, `comment-only-additions`, `pure-deletion-add-perspective-rule`. These records make the skip lane visible so a skip pattern that hides real violations shows up in the analyzer instead of vanishing.
+
+### Note on skill version
+
+`semantic_verdict` depends on the `bully` skill being up to date — older versions do not call `--log-verdict`. If verdict records are missing for known-firing semantic rules, update the skill or bypass the evaluator manually (`bully --log-verdict` is a plain CLI). `semantic_skipped` is pipeline-side and independent of the skill.
+
+## Session init records
+
+`SessionStart` writes one stamp per Reasonix session:
+
+```json
+{
+  "ts": "2026-04-28T14:00:00Z",
+  "type": "session_init",
+  "bully_version": "0.8.0",
+  "schema_version": 1
+}
+```
+
+`bully_version` is the producer (the bully release that emitted the surrounding records), `schema_version` is the telemetry schema version (currently `1`). Records between two `session_init` entries came from the version named in the earlier of the two — useful when reading older logs after a bully upgrade has changed record shape.
+
+## Hook fail-open records
+
+Any internal hook crash is swallowed (the hook must never block an edit on its own bug) and recorded:
+
+```json
+{"ts": "2026-06-09T12:00:00Z", "type": "hook_fail_open", "event": "PreToolUse", "file": "src/x.py", "error": "ValueError: ..."}
+```
+
+`bully-review` surfaces these: edits made while the hook was failing went **unlinted**, and a repeating `error` string is a bug to fix before any rule tuning.
+
+## Subagent stop records
+
+`SubagentStop` appends `{"type": "subagent_stop", "ts": "..."}` — a completion marker for evaluator dispatches, used to cross-check `evaluate_requested` activity.
+
+## Running the analyzer
+
+```bash
+python3 -m bully.semantic.analyzer \
+  --log .bully/log.jsonl \
+  --config .bully.yml
+```
+
+Output:
+
+```
+Rule health report
+==================
+Total edits analyzed: 284
+Window: 2026-03-01T12:00:00Z → 2026-04-16T18:00:00Z
+
+Noisy rules (2): fire on most edits -- consider relaxing or splitting.
+  - no-db-facade  fires=176 passes=108 requested=0 rate=62% avg_ms=6
+  - no-event-helper  fires=164 passes=120 requested=0 rate=58% avg_ms=5
+
+Dead rules (1): never invoked in this window -- consider removing or widening scope.
+  - deprecated-carbon  fires=0 passes=0 requested=0 rate=0% avg_ms=0
+
+Slow rules (2): mean latency is high -- consider simplifying or caching.
+  - pint-formatting  fires=68 passes=216 requested=0 rate=24% avg_ms=1412
+  - phpstan-check  fires=42 passes=242 requested=0 rate=15% avg_ms=892
+
+All rules:
+  - ... (per-rule table)
+```
+
+### Options
+
+```
+--json                   Emit machine-readable JSON instead of formatted text.
+--noisy-threshold 0.5    Violation rate above which a rule is flagged noisy (default 0.5).
+--slow-threshold-ms 500  Mean latency ms above which a rule is flagged slow (default 500).
+```
+
+### Classification rules
+
+- **Noisy** — `violation_rate = fires / (fires + passes)` exceeds the noisy threshold. Defaults to 50%. Semantic `violation` verdicts count as fires alongside script violations, so a prose-style rule that flags every edit surfaces as noisy now rather than hiding behind `evaluate_requested`.
+- **Dead** — the rule is configured but never appeared in any log entry's `rules` list AND has no `semantic_verdict` records and no `semantic_skipped` records for this rule id. A semantic rule that was dispatched and came back `pass` still counts as alive. A rule that is skipped only by the can't-match filters counts as alive too — the dead classifier only flags rules that never get considered.
+- **Slow** — mean per-run latency exceeds the slow threshold. Defaults to 500 ms. Usually external shell-outs. Candidates for demotion from the per-edit pipeline to pre-commit or CI.
+
+## Using the review skill
+
+The `bully-review` skill wraps the analyzer and produces a prioritized punch list instead of a raw table:
+
+```
+> /bully-review
+```
+
+The skill runs the analyzer, interprets the findings in context, and recommends concrete actions. It never modifies `.bully.yml` without your confirmation.
+
+## Workflow: introducing a new rule
+
+1. Add the rule to `.bully.yml` with `severity: warning`.
+2. Let it run across a few hundred edits.
+3. `/bully-review`.
+4. If the rule is noisy, sharpen its pattern or description before promoting.
+5. If the rule is quiet with clean fixes, promote to `severity: error`.
+6. If the rule never fires, check the scope glob first; if scope is right, consider removing.
+
+## Workflow: removing a rule
+
+1. `/bully-review` identifies a dead rule.
+2. Verify the scope isn't misconfigured. (A common cause: rule scoped `src/*.ts` when the project uses `packages/*/src/*.ts`.)
+3. If the rule is genuinely unused, remove it from `.bully.yml`.
+4. The telemetry log retains history; removed rules simply stop appearing in future records.
+
+## Privacy and log hygiene
+
+- The log contains file paths and rule outcomes — no file contents, no diffs, no code.
+- Log lines are append-only. The pipeline never rewrites or truncates.
+- Rotate manually when the log grows beyond your tolerance. `jq` over multi-MB JSONL is cheap; the analyzer has no pagination built in yet.
+- Gitignore `.bully/` if you don't want telemetry in version control. It's per-developer data, not project config.
+
+## What telemetry does not do (yet)
+
+The substrate is in place; some autonomous improvements are still deferred:
+
+- **Semantic-to-script promotion** — once the pipeline knows a semantic rule fires with identical mechanical fixes N times in a row, it could draft the equivalent script rule. Not wired. (The inputs — paired `evaluate_requested` + `semantic_verdict` records — now exist.)
+- **Rule discovery from unflagged fixes** — when the agent edits the same pattern repeatedly without any rule firing, that could suggest a new rule. Not wired.
+
+These are the logical next features if the substrate proves useful. Deferred deliberately — they need real usage data to be meaningful rather than speculative.
+
+## Coverage metric
+
+`bully coverage [--json]` reports, per file seen in telemetry, the number of rules whose `scope` glob matches that file. Files with zero matches are flagged as "uncovered" — usually a sign that the rule set has gaps in a directory or file type. This is a crude metric (it doesn't weight by historical violation rate yet) but answers the article's open question of "what fraction of risky edits are caught by at least one rule?" at a per-file granularity.
