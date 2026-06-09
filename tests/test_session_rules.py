@@ -202,3 +202,27 @@ def test_full_session_gate_loop(tmp_path):
     assert handle_payload({"event": "UserPromptSubmit", "cwd": str(proj)}) == (0, "")
     assert handle_payload({"event": "Stop", "cwd": str(proj)}) == (0, "")
     assert not (proj / ".bully" / "session.jsonl").exists()
+
+
+def test_nested_config_edit_still_feeds_cwd_session(tmp_path):
+    # An edit under a nested .bully.yml must still land in the cwd config's
+    # changed-set — the one Stop/UserPromptSubmit read (regression: split-brain).
+    proj = _session_proj(tmp_path)
+    sub = proj / "sub"
+    (sub / "src").mkdir(parents=True)
+    (sub / ".bully.yml").write_text("schema_version: 1\nrules: {}\n")
+    (sub / "src" / "x.py").write_text("a = 1\n")
+    code, _ = handle_payload({"event": "PreToolUse", "cwd": str(proj), "toolName": "edit_file",
+                              "toolArgs": {"path": "sub/src/x.py", "old_string": "a = 1", "new_string": "a = 2"}})
+    assert code == 0
+    assert _recorded(proj) == [str(sub / "src" / "x.py")]
+    assert not (sub / ".bully" / "session.jsonl").exists()
+    code, msg = handle_payload({"event": "Stop", "cwd": str(proj)})
+    assert code == 1 and "src-needs-tests" in msg
+
+
+def test_write_file_is_recorded(tmp_path):
+    proj, _ = _det_proj(tmp_path)
+    code, _ = handle_payload(_pre(proj, {"path": "new.py", "content": "y = 1\n"}, tool="write_file"))
+    assert code == 0
+    assert _recorded(proj) == [str(proj / "new.py")]

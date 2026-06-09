@@ -2,8 +2,10 @@
 """Reasonix hook driver: dispatch on payload.event; gate edits on PreToolUse.
 
 Wired to every event in .reasonix/settings.json via `python3 -m bully
-reasonix-hook`. M1 implements the PreToolUse deterministic path; other events
-are no-ops here (M2/M3 add semantic + session handling).
+reasonix-hook`. PreToolUse gates pending edits (deterministic block + semantic
+soft-gate) and records allowed edits to the session changed-set; Stop notifies
+on session-rule violations; UserPromptSubmit gates the turn on unsatisfied
+error session rules; SessionStart/SubagentStop stamp telemetry records.
 
 Output contract (reasonix internal/hook): the block message is read from
 STDERR; exit 2 blocks (gating events only), exit 1 = warn (notify), exit 0 =
@@ -209,10 +211,14 @@ def _handle_pretooluse(payload: dict) -> tuple[int, str]:
     if code != 2 and result.get("status") != "untrusted":
         # Only exit 2 stops the tool, so this edit will land: add it to the
         # session changed-set for the Stop / UserPromptSubmit session rules.
-        try:
-            cmd_session_record(str(config), ev.file_path)
-        except Exception:  # noqa: BLE001 — recording must never break the gate
-            pass
+        # Anchor on the cwd config — the one Stop/UserPromptSubmit read —
+        # not the file's (a nested config would split the changed-set).
+        session_config = _config_from_cwd(payload)
+        if session_config is not None:
+            try:
+                cmd_session_record(str(session_config), ev.file_path)
+            except Exception:  # noqa: BLE001 — recording must never break the gate
+                pass
     return code, msg
 
 
