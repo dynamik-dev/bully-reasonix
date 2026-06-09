@@ -52,3 +52,18 @@ def test_examples_catalog_ported():
         "django.yml", "fastapi.yml", "go.yml", "nextjs.yml",
         "rails.yml", "react-ts.yml", "rust-cli.yml",
     ]
+
+
+def test_bully_skill_runs_the_soft_gate_loop():
+    text = _read("skills/bully/SKILL.md")
+    fm = _frontmatter(text)
+    assert fm.get("name") == "bully"
+    assert "runas" not in fm  # inline skill
+    body = text.split("---\n", 2)[2]
+    _assert_no_claude_isms(text, "skills/bully")
+    assert "AGENTIC LINT -- blocked. Fix these before proceeding:" in body
+    assert "AGENTIC LINT SEMANTIC EVALUATION REQUIRED" in body
+    assert 'run_skill(name="bully-evaluator"' in body
+    assert "--log-verdict --diff-id" in body
+    assert "prior verdict" in body
+    assert "AGENTIC LINT -- unsatisfied session rules gate this turn" in body
