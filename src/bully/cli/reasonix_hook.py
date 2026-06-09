@@ -18,7 +18,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from bully.cli.session import cmd_session_record
+from bully.cli.session import cmd_session_record, cmd_session_start
+from bully.cli.stop import cmd_subagent_stop, reasonix_prompt_gate, reasonix_stop
 from bully.config.parser import ConfigError
 from bully.diff.pending import build_pending_diff_from, compute_after
 from bully.harness.reasonix import edit_event_from_payload
@@ -112,8 +113,51 @@ def _render(result: dict, config: Path) -> tuple[int, str]:
 
 def handle_payload(payload: dict) -> tuple[int, str]:
     """Core hook logic. Returns (exit_code, stderr_message)."""
-    if payload.get("event") == "PreToolUse":
-        return _handle_pretooluse(payload)
+    handlers = {
+        "PreToolUse": _handle_pretooluse,
+        "Stop": _handle_stop,
+        "UserPromptSubmit": _handle_prompt_submit,
+        "SessionStart": _handle_session_start,
+        "SubagentStop": _handle_subagent_stop,
+    }
+    handler = handlers.get(payload.get("event", ""))
+    if handler is None:
+        return 0, ""
+    return handler(payload)
+
+
+def _config_from_cwd(payload: dict) -> Path | None:
+    return find_config_upward(Path(payload.get("cwd") or "."))
+
+
+def _handle_stop(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is None:
+        return 0, ""
+    return reasonix_stop(str(config))
+
+
+def _handle_prompt_submit(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is None:
+        return 0, ""
+    return reasonix_prompt_gate(str(config))
+
+
+def _handle_session_start(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is not None:
+        # Stamps the session_init telemetry record that anchors the verdict
+        # cache and semantic windows. Its stdout banner is discarded: exit 0
+        # is a pass outcome and Reasonix skips those.
+        cmd_session_start(str(config))
+    return 0, ""
+
+
+def _handle_subagent_stop(payload: dict) -> tuple[int, str]:
+    config = _config_from_cwd(payload)
+    if config is not None:
+        cmd_subagent_stop(str(config))
     return 0, ""
 
 

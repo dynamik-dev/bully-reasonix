@@ -142,3 +142,63 @@ def test_prompt_gate_warning_only_passes(tmp_path):
     _warning_variant(proj)
     _write_session(proj, ["src/auth.py"])
     assert reasonix_prompt_gate(str(proj / ".bully.yml")) == (0, "")
+
+
+def test_stop_event_dispatches(tmp_path):
+    proj = _session_proj(tmp_path)
+    _write_session(proj, ["src/auth.py"])
+    code, msg = handle_payload({"event": "Stop", "cwd": str(proj)})
+    assert code == 1
+    assert "src-needs-tests" in msg
+
+
+def test_prompt_submit_event_gates(tmp_path):
+    proj = _session_proj(tmp_path)
+    _write_session(proj, ["src/auth.py"])
+    code, msg = handle_payload({"event": "UserPromptSubmit", "cwd": str(proj)})
+    assert code == 2
+    assert "src-needs-tests" in msg
+
+
+def test_session_start_stamps_session_init(tmp_path):
+    proj = _session_proj(tmp_path)
+    assert handle_payload({"event": "SessionStart", "cwd": str(proj)})[0] == 0
+    assert '"session_init"' in (proj / ".bully" / "log.jsonl").read_text()
+
+
+def test_subagent_stop_stamps_record(tmp_path):
+    proj = _session_proj(tmp_path)
+    assert handle_payload({"event": "SubagentStop", "cwd": str(proj)}) == (0, "")
+    assert '"subagent_stop"' in (proj / ".bully" / "log.jsonl").read_text()
+
+
+def test_event_without_config_is_noop(tmp_path):
+    assert handle_payload({"event": "Stop", "cwd": str(tmp_path)}) == (0, "")
+    assert handle_payload({"event": "UserPromptSubmit", "cwd": str(tmp_path)}) == (0, "")
+
+
+def test_full_session_gate_loop(tmp_path):
+    proj = _session_proj(tmp_path)
+    (proj / "src").mkdir()
+    (proj / "tests").mkdir()
+    (proj / "src" / "auth.py").write_text("a = 1\n")
+    (proj / "tests" / "test_auth.py").write_text("t = 1\n")
+
+    def edit(path, old, new):
+        return handle_payload({"event": "PreToolUse", "cwd": str(proj), "toolName": "edit_file",
+                               "toolArgs": {"path": path, "old_string": old, "new_string": new}})
+
+    # turn 1: edit src only -> recorded
+    assert edit("src/auth.py", "a = 1", "a = 2")[0] == 0
+    # Stop: violation -> notify, keep the set
+    code, msg = handle_payload({"event": "Stop", "cwd": str(proj)})
+    assert code == 1 and "src-needs-tests" in msg
+    # next prompt: gated
+    code, msg = handle_payload({"event": "UserPromptSubmit", "cwd": str(proj)})
+    assert code == 2 and "src-needs-tests" in msg
+    # the agent satisfies the rule by editing a test file
+    assert edit("tests/test_auth.py", "t = 1", "t = 2")[0] == 0
+    # prompt now passes; Stop is clean and resets the set
+    assert handle_payload({"event": "UserPromptSubmit", "cwd": str(proj)}) == (0, "")
+    assert handle_payload({"event": "Stop", "cwd": str(proj)}) == (0, "")
+    assert not (proj / ".bully" / "session.jsonl").exists()
