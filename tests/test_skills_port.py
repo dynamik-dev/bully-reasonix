@@ -90,3 +90,13 @@ def test_bully_init_is_reasonix_native():
     assert "reasonix-hook" in text  # offers the hooks wiring block
     assert "[skills]" in text       # offers the reasonix.toml paths entry
     assert 'command -v bully 2>/dev/null || echo "python3 -m bully"' in text
+
+
+def test_bully_author_is_reasonix_native():
+    text = _read("skills/bully-author/SKILL.md")
+    assert _frontmatter(text).get("name") == "bully-author"
+    _assert_no_claude_isms(text, "skills/bully-author")
+    assert "PreToolUse" in text
+    assert 'command -v bully 2>/dev/null || echo "python3 -m bully"' in text
+    assert "scripts/dogfood.sh" not in text
+    assert "--print-prompt" in text  # fixture protocol survived the port
