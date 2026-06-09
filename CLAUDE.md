@@ -28,7 +28,7 @@ Bully's engine — Python, stdlib-only, two-phase pipeline (deterministic script
 
 Target: Reasonix **Go line** (local CLI `1.4.0-rc.1`; contracts validated vs `v1.4.0`). Design: `docs/superpowers/specs/2026-06-09-bully-reasonix-port-design.md`; plans in `docs/superpowers/plans/`.
 
-- **M1 done:** deterministic `PreToolUse` blocking — `python3 -m bully reasonix-hook` decodes the pending edit, materializes it to a temp `content_path`, runs the script/AST engine, exits 2 to block (real file untouched). Wired in `.reasonix/settings.json`.
-- **Next:** M2 semantic soft-gate + session verdict-cache (spec §5b).
+- **M1+M2 done:** deterministic `PreToolUse` block + **semantic soft-gate**. Deterministic `error` violations block the pending edit (exit 2, real file untouched). Semantic rules block once with a `SEMANTIC EVALUATION REQUIRED` payload; the model evaluates via the `bully-evaluator` subagent skill (`skills/`) and logs verdicts (`--log-verdict --diff-id`); the re-issued clean edit is allowed via the session verdict cache (`state/verdict_cache.py`). Wired in `.reasonix/settings.json`.
+- **Next:** M3 session rules (`Stop` record/notify + `UserPromptSubmit` gate) + fail-open telemetry.
 
 > This file guides development _in Claude Code_. The shipped product's standing instructions belong in **`REASONIX.md`** (Reasonix's memory file — it does not auto-load `CLAUDE.md`).
