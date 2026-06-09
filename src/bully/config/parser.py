@@ -218,7 +218,6 @@ def parse_single_file(path: str) -> ParsedConfig:
     in_execution_block = False
     in_nested_rule_field: str | None = None
     nested_rule_field_dict: dict[str, object] = {}
-    nested_rule_field_list_key: str | None = None  # sub-key accumulating a block list
     skip: list[str] = []
     max_workers: int | None = None
 
@@ -302,14 +301,6 @@ def parse_single_file(path: str) -> ParsedConfig:
             in_execution_block = False
 
         if in_nested_rule_field is not None:
-            # Block-list item under a sub-key (indent >= 8, starts with "- ")
-            if indent >= 8 and stripped.startswith("- ") and nested_rule_field_list_key is not None:
-                item = _parse_scalar(stripped[2:].strip())
-                existing = nested_rule_field_dict.get(nested_rule_field_list_key, [])
-                if isinstance(existing, list):
-                    existing.append(item)
-                    nested_rule_field_dict[nested_rule_field_list_key] = existing
-                continue
             if indent >= 6 and ":" in stripped:
                 nkey, _, nvalue = stripped.partition(":")
                 nkey = nkey.strip()
@@ -317,15 +308,8 @@ def parse_single_file(path: str) -> ParsedConfig:
                 as_list = _parse_inline_list(nvalue_raw)
                 if as_list is not None:
                     nested_rule_field_dict[nkey] = as_list
-                    nested_rule_field_list_key = None
-                    continue
-                if nvalue_raw == "":
-                    # Sub-key starting a block list (items follow as "- …")
-                    nested_rule_field_dict[nkey] = []
-                    nested_rule_field_list_key = nkey
                     continue
                 parsed_nval = _parse_scalar(nvalue_raw)
-                nested_rule_field_list_key = None
                 if parsed_nval == "true":
                     nested_rule_field_dict[nkey] = True
                     continue
@@ -341,7 +325,6 @@ def parse_single_file(path: str) -> ParsedConfig:
                 fields[in_nested_rule_field] = dict(nested_rule_field_dict)
                 in_nested_rule_field = None
                 nested_rule_field_dict = {}
-                nested_rule_field_list_key = None
 
         if indent == 0:
             if current_id is not None:
@@ -457,7 +440,6 @@ def parse_single_file(path: str) -> ParsedConfig:
         fields[in_nested_rule_field] = dict(nested_rule_field_dict)
         in_nested_rule_field = None
         nested_rule_field_dict = {}
-        nested_rule_field_list_key = None
     if current_id is not None:
         finalize_rule()
 

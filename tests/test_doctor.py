@@ -45,11 +45,9 @@ SESSION_RULE = (
     "    engine: session\n"
     "    severity: error\n"
     "    when:\n"
-    "      changed_any:\n"
-    '        - "src/**"\n'
+    "      changed_any: ['src/**']\n"
     "    require:\n"
-    "      changed_any:\n"
-    '        - "CHANGELOG.md"\n'
+    "      changed_any: ['CHANGELOG.md']\n"
 )
 
 
