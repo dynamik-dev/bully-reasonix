@@ -46,6 +46,7 @@ def run_pipeline(
     rule_filter: set[str] | None = None,
     *,
     include_skipped: bool = False,
+    content_path: str | None = None,
     phase_timer=_NOOP_PHASE_TIMER,
 ) -> dict:
     """Full two-phase pipeline.
@@ -114,6 +115,7 @@ def run_pipeline(
         diff=diff,
         baseline=baseline,
         config_path=config_path,
+        content_path=content_path or file_path,
     )
     # Anchor script subprocess cwd to the config root so script rules like
     # `pnpm lint {file}` resolve project-relative tools regardless of where
@@ -123,10 +125,10 @@ def run_pipeline(
     config_root = str(Path(config_path).resolve().parent)
 
     def _adapter_script(rule, rctx):
-        return execute_script_rule(rule, rctx.file_path, rctx.diff, cwd=config_root)
+        return execute_script_rule(rule, rctx.content_path, rctx.diff, cwd=config_root)
 
     def _adapter_ast(rule, rctx):
-        return execute_ast_rule(rule, rctx.file_path)
+        return execute_ast_rule(rule, rctx.content_path)
 
     def _fold(results):
         for result in results:

@@ -27,6 +27,7 @@ class RuleContext:
     diff: str
     baseline: dict  # keys are (rule_id, rel_path, line, checksum) tuples
     config_path: str | None
+    content_path: str | None = None  # what engines read; None -> file_path
 
 
 @dataclass
@@ -61,7 +62,8 @@ def evaluate_rule(
 
         filtered: list[Violation] = []
         for v in violations:
-            if line_has_disable(ctx.file_path, v.line, rule.id):
+            disable_path = ctx.content_path or ctx.file_path
+            if line_has_disable(disable_path, v.line, rule.id):
                 continue
             if is_baselined(ctx.baseline, rule.id, ctx.config_path, ctx.file_path, v.line):
                 continue
