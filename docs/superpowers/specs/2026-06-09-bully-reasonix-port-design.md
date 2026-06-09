@@ -37,7 +37,7 @@ Port bully to full parity on Reasonix. Bully's evaluation engine is harness-agno
 **The seam** — all reasonix-specifics live in two new modules; the engine is untouched:
 
 - `src/bully/harness/reasonix.py` — parse the Payload, decode `toolArgs` per tool into a normalized `EditEvent`, and render hook output (exit code + stderr message).
-  - `EditEvent{ tool, file_path, old_string, new_string, is_write }`. Decoders: `edit_file`→`{path|file_path, old_string, new_string}`; `write_file`→`{path, content}` (`is_write=True`); `multi_edit`→`{path, edits[]}` (apply sequentially).
+  - `EditEvent{ tool, file_path, is_write, content, edits: [(old,new,replace_all)] }`. Confirmed reasonix arg schemas (snake_case, `v1.4.0`, `internal/tool/builtin/`): `edit_file`→`{path, old_string, new_string}` (single unique replace); `write_file`→`{path, content}` (`is_write=True`); `multi_edit`→`{path, edits:[{old_string, new_string, replace_all?}]}`. `path` may be relative → resolve against `payload.cwd`.
 - `src/bully/cli/reasonix_hook.py` — one CLI verb `reasonix-hook` wired to **every** event in settings.json; it dispatches on `payload.event` (`PreToolUse` → pipeline+gate, `Stop`/`SessionStart`/`SubagentStop` → record/notify). Single command keeps `settings.json` trivial.
 
 The existing `runtime/runner.run_pipeline` consumes an `EditEvent` + diff context with near-zero change.
@@ -51,6 +51,8 @@ The existing `runtime/runner.run_pipeline` consumes an `EditEvent` + diff contex
   - `after` = `edit_file`: `before` with first `old_string`→`new_string`; `write_file`: `content`; `multi_edit`: edits applied in order.
   - real file line numbers throughout; reuse `diff/analysis.py` excerpt/can't-match logic unchanged.
 - Keep `diff/context.py` (bully's post-write builder) for reference/tests; `pending.py` is the reasonix path.
+
+**Materialized content (deterministic engines).** bully's `script`/`ast` engines read the file **on disk** (`{file}` substitution / ast-grep scan), but `PreToolUse` is **pre-write** — disk still holds the *old* content, so the engines would check stale text. The hook therefore writes the computed `after` to a temp file under `<config-root>/.bully/tmp/` and passes it via a new, **backward-compatible `content_path`** on `run_pipeline`/`RuleContext` (defaults to `file_path`). `file_path` stays the real path for scope-globs, baseline, skip, and telemetry; `content_path` is what the engines read. `line_has_disable` reads `content_path` (pending text); `is_baselined` keys on `file_path` (real).
 
 ## 5. The one divergence: model-facing work must block
 
@@ -78,7 +80,8 @@ Accumulate the turn's changed-set via the `Stop` hook (record to `.bully/session
 
 | Layer | Disposition |
 |---|---|
-| `config/`, `engines/`, `semantic/payload.py`, `state/{baseline,trust,telemetry}.py`, `diff/analysis.py`, `runtime/{runner,rule_runner}.py` | **copy verbatim** |
+| `config/`, `semantic/payload.py`, `state/{baseline,trust,telemetry}.py`, `diff/analysis.py` | **copy verbatim** |
+| `engines/{script,ast_grep}.py`, `runtime/{runner,rule_runner}.py` | copy **+ backward-compatible `content_path`** (defaults to `file_path`; see §4) |
 | `diff/context.py` | keep (reference); new `diff/pending.py` is the live path |
 | `cli/hook_mode.py`, `hooks/` (`hook.sh`,`hooks.json`), `.claude-plugin/`, `bin/bully` Claude bits | **drop / replace** |
 | `cli/reasonix_hook.py`, `harness/reasonix.py`, `diff/pending.py`, `state/verdict_cache.py` | **new** |
@@ -142,4 +145,5 @@ bully-reasonix/
 
 - Semantic soft-gate UX (pause per semantically-relevant edit) — mitigated by prefilters + verdict-cache; revisit if noisy (telemetry will show).
 - `diff_id` normalization must be stable across the gated and re-issued edit — covered by a dedicated test.
-- `multi_edit` arg schema field names — confirm exact keys from `internal/skill/tools.go` in W1-①.
+- Edit-tool arg schemas — **confirmed** against `internal/tool/builtin/{editfile,writefile,multiedit}.go` (`path`, `old_string`, `new_string`, `content`, `edits[]`, `replace_all`).
+- Script-rule passthroughs that resolve project-relative config by file *location* (e.g. eslint) may behave differently against the materialized temp file; deterministic grep/ast rules are unaffected. Revisit if a real passthrough needs it.
