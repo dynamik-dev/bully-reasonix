@@ -1,0 +1,14 @@
+# Reasonix project config for bully-reasonix.
+#
+# Installing bully into another project: point that project's reasonix.toml at
+# this repo's skills/ directory (absolute path, or relative to that project's
+# root) and wire the hooks in its .reasonix/settings.json -- see REASONIX.md
+# and `python3 -m bully doctor`.
+
+[skills]
+paths = ["skills"]
+
+[agent]
+# Optional: route the bully subagent skills to a cheaper/faster model. Values
+# must be model refs configured in your reasonix providers; uncomment and adjust:
+# subagent_models = { "bully-evaluator" = "deepseek-chat", "bully-scheduler" = "deepseek-chat" }

@@ -110,3 +110,18 @@ def test_bully_review_is_reasonix_native():
     assert "hook_fail_open" in text
     assert "session_init" in text
     assert "/bully-scheduler" in text
+
+
+def test_reasonix_toml_wires_the_skills_dir():
+    text = _read("reasonix.toml")
+    assert "[skills]" in text
+    assert 'paths = ["skills"]' in text
+    assert "subagent_models" in text
+
+
+def test_reasonix_md_carries_the_standing_instructions():
+    text = _read("REASONIX.md")
+    _assert_no_claude_isms(text, "REASONIX.md")
+    assert "--log-verdict" in text
+    assert "AGENTIC LINT" in text
+    assert "bully-author" in text  # the session-gate escape: fix the change or fix the rule
