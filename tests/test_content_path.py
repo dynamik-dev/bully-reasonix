@@ -5,7 +5,8 @@ from bully.runtime.runner import run_pipeline
 
 
 def _project(tmp_path, rule_script):
-    (tmp_path / ".bully.yml").write_text(textwrap.dedent(f"""\
+    (tmp_path / ".bully.yml").write_text(
+        textwrap.dedent(f"""\
         schema_version: 1
         rules:
           no-forbidden:
@@ -14,7 +15,8 @@ def _project(tmp_path, rule_script):
             scope: ["*.py"]
             severity: error
             script: "{rule_script}"
-    """))
+    """)
+    )
     return tmp_path
 
 

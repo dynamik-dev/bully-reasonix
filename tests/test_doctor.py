@@ -1,5 +1,6 @@
 # tests/test_doctor.py
 """M4: doctor rewritten for .reasonix wiring + reasonix skill discovery."""
+
 import json
 
 import pytest
@@ -24,8 +25,12 @@ FULL_HOOKS = {
 }
 
 ALL_SKILLS = (
-    "bully-evaluator", "bully", "bully-init",
-    "bully-author", "bully-review", "bully-scheduler",
+    "bully-evaluator",
+    "bully",
+    "bully-init",
+    "bully-author",
+    "bully-review",
+    "bully-scheduler",
 )
 
 SCRIPT_RULE = (

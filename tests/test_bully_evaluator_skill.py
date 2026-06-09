@@ -17,7 +17,7 @@ def test_skill_file_exists_and_is_a_subagent():
     assert SKILL.is_file()
     fm = _frontmatter(SKILL.read_text())
     assert fm.get("name") == "bully-evaluator"
-    assert fm.get("runas") == "subagent"          # frontmatter `runAs:` -> key `runas`
+    assert fm.get("runas") == "subagent"  # frontmatter `runAs:` -> key `runas`
     assert fm.get("description")
 
 

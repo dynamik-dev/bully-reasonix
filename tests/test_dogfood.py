@@ -1,6 +1,7 @@
 # tests/test_dogfood.py
 """The dogfood script must drive the real `bully reasonix-hook` subprocess and
 exit 0 (all of its internal block/allow assertions held)."""
+
 import subprocess
 from pathlib import Path
 

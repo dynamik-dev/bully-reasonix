@@ -95,8 +95,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Append a semantic_verdict telemetry record.",
     )
     parser.add_argument("--verdict", choices=("pass", "violation"), default=None)
-    parser.add_argument("--diff-id", dest="diff_id", default=None,
-                        help="With --log-verdict: the semantic soft-gate diff id to key this verdict to.")
+    parser.add_argument(
+        "--diff-id",
+        dest="diff_id",
+        default=None,
+        help="With --log-verdict: the semantic soft-gate diff id to key this verdict to.",
+    )
     parser.add_argument(
         "--trust",
         action="store_true",

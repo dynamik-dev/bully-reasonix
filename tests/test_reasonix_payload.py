@@ -29,10 +29,13 @@ def test_multi_edit_decodes_steps_with_replace_all():
     ev = edit_event_from_payload(
         _payload(
             "multi_edit",
-            {"path": "m.py", "edits": [
-                {"old_string": "a", "new_string": "b"},
-                {"old_string": "c", "new_string": "d", "replace_all": True},
-            ]},
+            {
+                "path": "m.py",
+                "edits": [
+                    {"old_string": "a", "new_string": "b"},
+                    {"old_string": "c", "new_string": "d", "replace_all": True},
+                ],
+            },
         )
     )
     assert ev.edits == (("a", "b", False), ("c", "d", True))
@@ -40,7 +43,9 @@ def test_multi_edit_decodes_steps_with_replace_all():
 
 def test_toolargs_accepts_json_string():
     # toolArgs is normally a nested object, but tolerate a JSON-encoded string.
-    ev = edit_event_from_payload(_payload("edit_file", '{"path": "z.py", "old_string": "a", "new_string": "b"}'))
+    ev = edit_event_from_payload(
+        _payload("edit_file", '{"path": "z.py", "old_string": "a", "new_string": "b"}')
+    )
     assert ev.file_path == "/proj/z.py"
 
 
@@ -49,4 +54,7 @@ def test_non_edit_tool_returns_none():
 
 
 def test_missing_path_returns_none():
-    assert edit_event_from_payload(_payload("edit_file", {"old_string": "a", "new_string": "b"})) is None
+    assert (
+        edit_event_from_payload(_payload("edit_file", {"old_string": "a", "new_string": "b"}))
+        is None
+    )
