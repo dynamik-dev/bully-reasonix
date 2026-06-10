@@ -51,7 +51,9 @@ def _log_fail_open(config: Path, event: str, file_path: str, exc: BaseException)
         append_record(
             telemetry_path(str(config)),
             {
-                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "ts": datetime.now(timezone.utc)
+                .isoformat(timespec="seconds")
+                .replace("+00:00", "Z"),
                 "type": "hook_fail_open",
                 "event": event,
                 "file": file_path,
@@ -106,7 +108,12 @@ def _semantic_gate(result: dict, config: Path) -> tuple[int, str]:
     recorded = [r for r in evaluate if cached.get(r["id"]) == "violation"]
     if recorded:
         body = "\n".join(f"- [{r['id']}] {r.get('description', '')}" for r in recorded)
-        return 2, "AGENTIC LINT -- blocked (semantic, prior verdict). Fix before proceeding:\n" + body + "\n"
+        return (
+            2,
+            "AGENTIC LINT -- blocked (semantic, prior verdict). Fix before proceeding:\n"
+            + body
+            + "\n",
+        )
 
     if evaluate and all(cached.get(r["id"]) == "pass" for r in evaluate):
         return 0, ""  # this exact edit was already evaluated clean -> allow

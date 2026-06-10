@@ -1,5 +1,6 @@
 # tests/test_session_rules.py
 """M3: session changed-set recording, Stop notify, UserPromptSubmit gate."""
+
 import json
 import textwrap
 
@@ -7,7 +8,8 @@ from bully.cli.reasonix_hook import handle_payload
 
 
 def _det_proj(tmp_path, severity="error"):
-    (tmp_path / ".bully.yml").write_text(textwrap.dedent(f"""\
+    (tmp_path / ".bully.yml").write_text(
+        textwrap.dedent(f"""\
         schema_version: 1
         rules:
           no-forbidden:
@@ -16,7 +18,8 @@ def _det_proj(tmp_path, severity="error"):
             scope: ["*.py"]
             severity: {severity}
             script: "grep -n FORBIDDEN {{file}} && exit 1 || exit 0"
-    """))
+    """)
+    )
     f = tmp_path / "app.py"
     f.write_text("x = 1\n")
     return tmp_path, f
@@ -35,7 +38,9 @@ def _recorded(proj):
 
 def test_allowed_edit_is_recorded(tmp_path):
     proj, f = _det_proj(tmp_path)
-    code, _ = handle_payload(_pre(proj, {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"}))
+    code, _ = handle_payload(
+        _pre(proj, {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"})
+    )
     assert code == 0
     assert _recorded(proj) == [str(f)]
 
@@ -65,7 +70,8 @@ from bully.cli.stop import reasonix_prompt_gate, reasonix_stop
 def _session_proj(tmp_path):
     # NOTE: when/require must be block-style nested mappings — the stdlib
     # mini-YAML parser does not accept flow mappings.
-    (tmp_path / ".bully.yml").write_text(textwrap.dedent("""\
+    (tmp_path / ".bully.yml").write_text(
+        textwrap.dedent("""\
         schema_version: 1
         rules:
           src-needs-tests:
@@ -76,7 +82,8 @@ def _session_proj(tmp_path):
               changed_any: ['src/**']
             require:
               changed_any: ['tests/**']
-    """))
+    """)
+    )
     return tmp_path
 
 
@@ -107,7 +114,7 @@ def test_stop_error_violation_notifies_and_keeps_set(tmp_path):
     proj = _session_proj(tmp_path)
     _write_session(proj, ["src/auth.py"])
     code, msg = reasonix_stop(str(proj / ".bully.yml"))
-    assert code == 1                                   # notify -- Stop can't block in Reasonix
+    assert code == 1  # notify -- Stop can't block in Reasonix
     assert "src-needs-tests" in msg
     assert "gate the next prompt" in msg
     assert (proj / ".bully" / "session.jsonl").exists()  # kept for the prompt gate
@@ -185,8 +192,14 @@ def test_full_session_gate_loop(tmp_path):
     (proj / "tests" / "test_auth.py").write_text("t = 1\n")
 
     def edit(path, old, new):
-        return handle_payload({"event": "PreToolUse", "cwd": str(proj), "toolName": "edit_file",
-                               "toolArgs": {"path": path, "old_string": old, "new_string": new}})
+        return handle_payload(
+            {
+                "event": "PreToolUse",
+                "cwd": str(proj),
+                "toolName": "edit_file",
+                "toolArgs": {"path": path, "old_string": old, "new_string": new},
+            }
+        )
 
     # turn 1: edit src only -> recorded
     assert edit("src/auth.py", "a = 1", "a = 2")[0] == 0
@@ -212,8 +225,14 @@ def test_nested_config_edit_still_feeds_cwd_session(tmp_path):
     (sub / "src").mkdir(parents=True)
     (sub / ".bully.yml").write_text("schema_version: 1\nrules: {}\n")
     (sub / "src" / "x.py").write_text("a = 1\n")
-    code, _ = handle_payload({"event": "PreToolUse", "cwd": str(proj), "toolName": "edit_file",
-                              "toolArgs": {"path": "sub/src/x.py", "old_string": "a = 1", "new_string": "a = 2"}})
+    code, _ = handle_payload(
+        {
+            "event": "PreToolUse",
+            "cwd": str(proj),
+            "toolName": "edit_file",
+            "toolArgs": {"path": "sub/src/x.py", "old_string": "a = 1", "new_string": "a = 2"},
+        }
+    )
     assert code == 0
     assert _recorded(proj) == [str(sub / "src" / "x.py")]
     assert not (sub / ".bully" / "session.jsonl").exists()
@@ -223,6 +242,8 @@ def test_nested_config_edit_still_feeds_cwd_session(tmp_path):
 
 def test_write_file_is_recorded(tmp_path):
     proj, _ = _det_proj(tmp_path)
-    code, _ = handle_payload(_pre(proj, {"path": "new.py", "content": "y = 1\n"}, tool="write_file"))
+    code, _ = handle_payload(
+        _pre(proj, {"path": "new.py", "content": "y = 1\n"}, tool="write_file")
+    )
     assert code == 0
     assert _recorded(proj) == [str(proj / "new.py")]

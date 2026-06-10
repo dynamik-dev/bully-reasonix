@@ -7,7 +7,8 @@ from bully.cli.reasonix_hook import handle_payload
 
 
 def _proj(tmp_path):
-    (tmp_path / ".bully.yml").write_text(textwrap.dedent("""\
+    (tmp_path / ".bully.yml").write_text(
+        textwrap.dedent("""\
         schema_version: 1
         rules:
           no-forbidden:
@@ -16,7 +17,8 @@ def _proj(tmp_path):
             scope: ["*.py"]
             severity: error
             script: "grep -n FORBIDDEN {file} && exit 1 || exit 0"
-    """))
+    """)
+    )
     f = tmp_path / "app.py"
     f.write_text("x = 1\n")
     return tmp_path, f
@@ -65,10 +67,13 @@ def test_multi_edit_blocks_when_a_step_introduces_violation(tmp_path):
     code, msg = handle_payload(
         _pre(
             proj,
-            {"path": "app.py", "edits": [
-                {"old_string": "x = 1", "new_string": "x = 2"},
-                {"old_string": "x = 2", "new_string": "x = 2  # FORBIDDEN"},
-            ]},
+            {
+                "path": "app.py",
+                "edits": [
+                    {"old_string": "x = 1", "new_string": "x = 2"},
+                    {"old_string": "x = 2", "new_string": "x = 2  # FORBIDDEN"},
+                ],
+            },
             tool="multi_edit",
         )
     )
@@ -90,7 +95,9 @@ def test_non_edit_tool_is_noop(tmp_path):
 def test_no_config_is_noop(tmp_path):
     # no .bully.yml anywhere above the file -> no-op, no crash
     (tmp_path / "loose.py").write_text("z = 1\n")
-    code, _ = handle_payload(_pre(tmp_path, {"path": "loose.py", "old_string": "z = 1", "new_string": "z = 2"}))
+    code, _ = handle_payload(
+        _pre(tmp_path, {"path": "loose.py", "old_string": "z = 1", "new_string": "z = 2"})
+    )
     assert code == 0
 
 

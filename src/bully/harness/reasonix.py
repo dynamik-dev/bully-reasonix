@@ -22,10 +22,10 @@ EDIT_TOOLS = {"edit_file", "write_file", "multi_edit"}
 @dataclass(frozen=True)
 class EditEvent:
     tool: str
-    file_path: str                              # absolute, resolved against cwd
+    file_path: str  # absolute, resolved against cwd
     is_write: bool
-    content: str | None                         # write_file only
-    edits: tuple[tuple[str, str, bool], ...]    # (old, new, replace_all)
+    content: str | None  # write_file only
+    edits: tuple[tuple[str, str, bool], ...]  # (old, new, replace_all)
 
 
 def _resolve(cwd: str, path: str) -> str:
@@ -63,12 +63,19 @@ def edit_event_from_payload(payload: dict[str, Any]) -> EditEvent | None:
             if not isinstance(e, dict):
                 continue
             steps.append(
-                (e.get("old_string", "") or "", e.get("new_string", "") or "", bool(e.get("replace_all", False)))
+                (
+                    e.get("old_string", "") or "",
+                    e.get("new_string", "") or "",
+                    bool(e.get("replace_all", False)),
+                )
             )
         return EditEvent(tool, file_path, False, None, tuple(steps))
 
     # edit_file
     return EditEvent(
-        tool, file_path, False, None,
+        tool,
+        file_path,
+        False,
+        None,
         ((args.get("old_string", "") or "", args.get("new_string", "") or "", False),),
     )

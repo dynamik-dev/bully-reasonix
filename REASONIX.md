@@ -36,4 +36,4 @@ the user. Then continue with the user's request. Never ignore the gate.
 - `bully-evaluator`, `bully-scheduler` — subagents; dispatch them, don't chat with them
 
 Diagnostics: `python3 -m bully doctor`. Telemetry: `.bully/log.jsonl` (see
-`docs/telemetry.md`).
+`docs/telemetry.md`). End-to-end check: `docs/live-smoke.md`.

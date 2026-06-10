@@ -1,5 +1,6 @@
 # tests/test_skills_port.py
 """M4: ported skills, docs, and config artifacts -- Reasonix-native, no Claude-isms."""
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,8 +50,13 @@ def test_ported_docs_exist_and_are_reasonix_native():
 def test_examples_catalog_ported():
     packs = sorted(p.name for p in (ROOT / "examples" / "rules").glob("*.yml"))
     assert packs == [
-        "django.yml", "fastapi.yml", "go.yml", "nextjs.yml",
-        "rails.yml", "react-ts.yml", "rust-cli.yml",
+        "django.yml",
+        "fastapi.yml",
+        "go.yml",
+        "nextjs.yml",
+        "rails.yml",
+        "react-ts.yml",
+        "rust-cli.yml",
     ]
 
 
@@ -88,7 +94,7 @@ def test_bully_init_is_reasonix_native():
     _assert_no_claude_isms(text, "skills/bully-init")
     assert "PreToolUse" in text
     assert "reasonix-hook" in text  # offers the hooks wiring block
-    assert "[skills]" in text       # offers the reasonix.toml paths entry
+    assert "[skills]" in text  # offers the reasonix.toml paths entry
     assert 'command -v bully 2>/dev/null || echo "python3 -m bully"' in text
 
 
